@@ -364,9 +364,9 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       else {
         const { codec, bitrate, filters, fps, frames, size } = video;
         if (codec)
-          args.push("-c:a", codec);
+          args.push("-c:v", codec);
         if (bitrate)
-          args.push("-b:a", bitrate.toString());
+          args.push("-b:v", bitrate.toString());
         if (fps)
           args.push("-r", fps.toString());
         if (frames)
