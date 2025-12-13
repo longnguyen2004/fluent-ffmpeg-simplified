@@ -302,7 +302,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     if (this._options.stdoutLines && this._stderrLines.length > this._options.stdoutLines)
       this._stderrLines = this._stderrLines.slice(this._stderrLines.length - this._options.stdoutLines);
   }
-  run(cancelSignal: AbortSignal): ResultPromise {
+  run(cancelSignal?: AbortSignal): ResultPromise {
     if (this._proc)
       throw new Error("This instance is already run");
     if (!this._inputs.length)
