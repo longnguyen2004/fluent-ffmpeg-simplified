@@ -111,8 +111,9 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       ...options
     }
   }
-  input(src: string | Readable): void {
+  input(src: string | Readable): this {
     this._inputs.push({ src });
+    return this;
   }
   private _getLastInput() {
     const input = this._inputs.at(-1);
@@ -120,50 +121,58 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       throw new Error("No input added. Please add an input");
     return input;
   }
-  inputFormat(format: string): void {
+  inputFormat(format: string): this {
     const input = this._getLastInput();
     input.format = format;
+    return this;
   }
-  inputFPS(fps: number): void {
+  inputFPS(fps: number): this {
     const input = this._getLastInput();
     input.fps = fps;
+    return this;
   }
-  native(): void {
+  native(): this {
     const input = this._getLastInput();
     input.readrateNative = true;
+    return this;
   }
-  seekInput(time: Time): void {
+  seekInput(time: Time): this {
     const input = this._getLastInput();
     input.startTime = time;
+    return this;
   }
-  loop(length: unknown): void {
+  loop(length: unknown): this {
     if (length)
       throw new Error("Please specify loop output duration on the output instead");
     const input = this._getLastInput();
     input.loop = true;
+    return this;
   }
-  inputOptions(...options: (string | string[])[]): void {
+  inputOptions(...options: (string | string[])[]): this {
     const input = this._getLastInput();
     input.extraOpts = [
       ...(input.extraOpts ?? []),
       ...options.flat().flatMap(option => parseArgsStringToArgv(option))
     ];
+    return this;
   }
-  output(dst: string): void;
-  output(dst: Writable, pipeArgs?: PipeArgs): void;
-  output(dst: string | Writable, pipeArgs?: PipeArgs): void {
+  output(dst: string): this;
+  output(dst: Writable, pipeArgs?: PipeArgs): this;
+  output(dst: string | Writable, pipeArgs?: PipeArgs): this {
     this._outputs.push({
       dst: typeof dst === "string" ? dst : { stream: dst, pipeArgs },
       audio: {},
       video: {}
     });
+    return this;
   }
-  outputOptions(...options: (string | string[])[]): void {
+  outputOptions(...options: (string | string[])[]): this {
     const output = this._getLastOutput();
     output.extraOpts = [
       ...(output.extraOpts ?? []),
       ...options.flat().flatMap(option => parseArgsStringToArgv(option))
     ];
+    return this;
   }
   private _getLastOutput() {
     const output = this._outputs.at(-1);
@@ -171,9 +180,10 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       throw new Error("No output added. Please add an output");
     return output;
   }
-  noAudio(): void {
+  noAudio(): this {
     const output = this._getLastOutput();
     output.audio = undefined;
+    return this;
   }
   private setAudioProps<T extends keyof AudioSettings>(key: T, value: AudioSettings[T]) {
     const output = this._getLastOutput();
@@ -181,22 +191,27 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       throw new Error("Audio disabled");
     output.audio[key] = value;
   }
-  audioCodec(codec: string): void {
+  audioCodec(codec: string): this {
     this.setAudioProps("codec", codec);
+    return this;
   }
-  audioBitrate(bitrate: Bitrate): void {
+  audioBitrate(bitrate: Bitrate): this {
     this.setAudioProps("bitrate", bitrate);
+    return this;
   }
-  audioChannels(count: number): void {
+  audioChannels(count: number): this {
     this.setAudioProps("channels", count);
+    return this;
   }
-  audioFrequency(freq: number): void {
+  audioFrequency(freq: number): this {
     this.setAudioProps("freq", freq);
+    return this;
   }
-  audioQuality(q: number): void {
+  audioQuality(q: number): this {
     this.setAudioProps("quality", q);
+    return this;
   }
-  audioFilters(...filters: (Filter | Filter[])[]): void {
+  audioFilters(...filters: (Filter | Filter[])[]): this {
     const output = this._getLastOutput();
     if (!output.audio)
       throw new Error("Audio disabled");
@@ -204,10 +219,12 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       ...(output.audio.filters) ?? [],
       ...filters.flat()
     ];
+    return this;
   }
-  noVideo(): void {
+  noVideo(): this {
     const output = this._getLastOutput();
     output.video = undefined;
+    return this;
   }
   private setVideoProps<T extends keyof VideoSettings>(key: T, value: VideoSettings[T]) {
     const output = this._getLastOutput();
@@ -215,23 +232,26 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       throw new Error("Video disabled");
     output.video[key] = value;
   }
-  videoBitrate(bitrate: Bitrate): void {
+  videoBitrate(bitrate: Bitrate): this {
     this.setVideoProps("bitrate", bitrate);
+    return this;
   }
-  fps(fps: number): void {
+  fps(fps: number): this {
     this.setVideoProps("fps", fps);
+    return this;
   }
-  frames(count: number): void {
+  frames(count: number): this {
     this.setVideoProps("frames", count);
+    return this;
   }
-  size(size: Size): void {
+  size(size: Size): this {
     if (size.endsWith("%")) {
       const percentStr = size.substring(0, size.length - 1);
       const percent = Number.parseFloat(percentStr);
       if (!Number.isFinite(percent) || percent <= 0)
         throw new Error(`Invalid size: ${size}`);
       this.setVideoProps("size", { percent });
-      return;
+      return this;
     }
     const [widthStr, heightStr] = size.split("x");
     if (!widthStr || !heightStr)
@@ -248,15 +268,19 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       this.setVideoProps("size", { width: undefined, height });
     else
       throw new Error("Width and height can't both be unknown");
+    return this;
   }
-  duration(dur: Time): void {
+  duration(dur: Time): this {
     this._getLastOutput().duration = dur;
+    return this;
   }
-  seek(start: Time): void {
+  seek(start: Time): this {
     this._getLastOutput().startTime = start;
+    return this;
   }
-  format(format: string): void {
+  format(format: string): this {
     this._getLastOutput().format = format;
+    return this;
   }
   private processStderr(line: string) {
     this.emit("stderr", line);
