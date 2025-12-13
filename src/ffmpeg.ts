@@ -325,11 +325,11 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       if (loop)
         args.push("-loop", "-1");
       if (typeof src === "string") {
-        args.push(src);
+        args.push("-i", src);
       }
       else {
         const stream = StreamInput(src);
-        args.push(stream.url);
+        args.push("-i", stream.url);
       }
     }
     for (const output of this._outputs) {
