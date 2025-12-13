@@ -150,7 +150,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     ];
   }
   output(dst: string): void;
-  output(dst: Writable, pipeArgs: PipeArgs): void;
+  output(dst: Writable, pipeArgs?: PipeArgs): void;
   output(dst: string | Writable, pipeArgs?: PipeArgs): void {
     this._outputs.push({
       dst: typeof dst === "string" ? dst : { stream: dst, pipeArgs },
