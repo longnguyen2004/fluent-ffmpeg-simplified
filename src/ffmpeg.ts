@@ -274,6 +274,16 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       throw new Error("Width and height can't both be unknown");
     return this;
   }
+  videoFilters(...filters: (Filter | Filter[])[]): this {
+    const output = this._getLastOutput();
+    if (!output.video)
+      throw new Error("Video disabled");
+    output.video.filters = [
+      ...(output.video.filters) ?? [],
+      ...filters.flat()
+    ];
+    return this;
+  }
   duration(dur: Time): this {
     this._getLastOutput().duration = dur;
     return this;
