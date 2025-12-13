@@ -1,0 +1,24 @@
+{
+  "name": "fluent-ffmpeg-simplified",
+  "version": "0.0.1",
+  "description": "",
+  "type": "module",
+  "exports": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsdown"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "execa": "^9.6.1",
+    "string-argv": "^0.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.1",
+    "tsdown": "^0.17.3",
+    "typescript": "^5.9.3"
+  }
+}
