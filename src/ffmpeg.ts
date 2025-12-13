@@ -232,6 +232,10 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       throw new Error("Video disabled");
     output.video[key] = value;
   }
+  videoCodec(codec: string): this {
+    this.setVideoProps("codec", codec);
+    return this;
+  }
   videoBitrate(bitrate: Bitrate): this {
     this.setVideoProps("bitrate", bitrate);
     return this;
