@@ -6,6 +6,7 @@ import type stream from "node:stream";
 export class NamedPipeStream {
   private _socketPath: string;
   private _url: string;
+  private _server: net.Server;
 
   constructor(stream: stream.Stream, onSocket?: (sock: net.Socket) => unknown)
   {
@@ -28,14 +29,19 @@ export class NamedPipeStream {
     }
     catch {}
 
-    const server = net.createServer(onSocket);
-    stream.on("close", () => { server.close(); });
-    server.listen(this._socketPath);
+    this._server = net.createServer(onSocket);
+    stream.on("close", () => { this._server.close(); });
+    this._server.listen(this._socketPath);
   }
 
   get url(): string
   {
     return this._url;
+  }
+
+  close(): void
+  {
+    this._server.close();
   }
 }
 

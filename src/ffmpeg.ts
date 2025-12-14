@@ -1,7 +1,7 @@
 import { execa, type ResultPromise } from "execa";
 import { parseArgsStringToArgv } from "string-argv";
 import { ffmpegPath, ffprobePath } from "./executable.js";
-import { StreamInput, StreamOutput } from "./stream-wrapper.js";
+import { type NamedPipeStream, StreamInput, StreamOutput } from "./stream-wrapper.js";
 import { EventEmitter } from "node:events";
 import type { EventMap } from "./events.js";
 import type { Readable, Writable } from "node:stream";
@@ -303,6 +303,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       this._stderrLines = this._stderrLines.slice(this._stderrLines.length - this._options.stdoutLines);
   }
   run(cancelSignal?: AbortSignal): ResultPromise {
+    const namedPipes: NamedPipeStream[] = [];
     if (this._proc)
       throw new Error("This instance is already run");
     if (!this._inputs.length)
@@ -330,6 +331,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       else {
         const stream = StreamInput(src);
         args.push("-i", stream.url);
+        namedPipes.push(stream);
       }
     }
     for (const output of this._outputs) {
@@ -406,6 +408,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       else {
         const stream = StreamOutput(dst.stream, dst.pipeArgs);
         args.push(stream.url);
+        namedPipes.push(stream);
       }
     }
     const proc = execa(ffmpegPath, args, {
@@ -421,7 +424,8 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     })();
     proc
       .then(() => { this.emit("end", "", this._stderrLines.join("\n")) })
-      .catch((err) => { this.emit("error", err, "", this._stderrLines.join("\n")) });
+      .catch((err) => { this.emit("error", err, "", this._stderrLines.join("\n")) })
+      .finally(() => { namedPipes.forEach(pipe => { pipe.close() })});
     return proc;
   }
 }
