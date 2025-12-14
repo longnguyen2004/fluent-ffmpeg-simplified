@@ -132,6 +132,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       timeout: 0,
       ...options,
     };
+    this.on("error", () => {});
   }
   input(src: string | Readable): this {
     this._inputs.push({ src });
