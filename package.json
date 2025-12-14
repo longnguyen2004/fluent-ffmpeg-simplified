@@ -11,10 +11,11 @@
   ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsdown"
+    "build": "npm run typecheck && tsdown",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
-  "author": "",
+  "author": "Long Nguyen",
   "license": "MIT",
   "dependencies": {
     "execa": "^9.6.1",
