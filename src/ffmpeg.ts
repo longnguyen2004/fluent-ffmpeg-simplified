@@ -417,7 +417,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     (async () => {
       for await (const line of proc.iterable({ from: "stderr" }))
         this.processStderr(line);
-    })();
+    })().catch(() => {});
     proc
       .then(() => {
         this.emit("end", "", this._stderrLines.join("\n"));
