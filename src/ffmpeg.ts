@@ -98,19 +98,16 @@ type OutputSettings = {
 function filtersToString(filters: Filter[]) {
   return filters
     .map((el) => {
-      if (typeof el === "string") {
-        return el;
-      } else {
-        const opts =
-          typeof el.options === "string"
-            ? el.options
-            : Array.isArray(el.options)
-              ? el.options.join(":")
-              : Object.entries(el.options)
-                  .map(([k, v]) => `${k}=${v}`)
-                  .join(":");
-        return `${el.filter}=${opts}`;
-      }
+      if (typeof el === "string") return el;
+      const opts =
+        typeof el.options === "string"
+          ? el.options
+          : Array.isArray(el.options)
+            ? el.options.join(":")
+            : Object.entries(el.options)
+                .map(([k, v]) => `${k}=${v}`)
+                .join(":");
+      return `${el.filter}=${opts}`;
     })
     .join(",");
 }
@@ -426,9 +423,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
         this.emit("error", err, "", this._stderrLines.join("\n"));
       })
       .finally(() => {
-        namedPipes.forEach((pipe) => {
-          pipe.close();
-        });
+        for (const pipe of namedPipes) pipe.close();
       });
     return proc;
   }
