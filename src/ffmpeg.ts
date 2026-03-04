@@ -1,3 +1,4 @@
+import readline from "node:readline";
 import { execa, type ResultPromise } from "execa";
 import { parseArgsStringToArgv } from "string-argv";
 import { ffmpegPath } from "./executable.js";
@@ -7,6 +8,7 @@ import {
   StreamOutput,
 } from "./stream-wrapper.js";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import type { EventMap } from "./events.js";
 import type { Readable, Writable } from "node:stream";
 
@@ -326,6 +328,12 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     if (!this._inputs.length) throw new Error("No inputs specified");
     if (!this._outputs.length) throw new Error("No outputs specified");
     const args: string[] = [];
+
+    const progressStream = new PassThrough();
+    const progressPipe = StreamOutput(progressStream);
+    namedPipes.push(progressPipe);
+    args.push("-progress", progressPipe.url);
+
     for (const input of this._inputs) {
       const { extraOpts, format, fps, readrateNative, startTime, loop, src } =
         input;
@@ -415,6 +423,51 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       for await (const line of proc.iterable({ from: "stderr" }))
         this.processStderr(line);
     })().catch(() => {});
+
+    let progressBlock: Record<string, string> = {};
+    const rl = readline.createInterface({
+      input: progressStream,
+      crlfDelay: Number.POSITIVE_INFINITY,
+    });
+    (async () => {
+      for await (const line of rl) {
+        const eqIdx = line.indexOf("=");
+        if (eqIdx === -1) continue;
+        const key = line.substring(0, eqIdx).trim();
+        const value = line.substring(eqIdx + 1).trim();
+        if (key === "progress") {
+          const frames = Number.parseInt(progressBlock.frame ?? "0", 10) || 0;
+          const currentFps = Number.parseFloat(progressBlock.fps ?? "0") || 0;
+          const bitrateMatch = (progressBlock.bitrate ?? "").match(
+            /^([\d.]+)kbits\/s$/,
+          );
+          const currentKbps = bitrateMatch
+            ? Number.parseFloat(bitrateMatch[1])
+            : 0;
+          const totalSizeBytes = Number.parseInt(
+            progressBlock.total_size ?? "0",
+            10,
+          );
+          const targetSize = totalSizeBytes > 0 ? totalSizeBytes / 1024 : 0;
+          const outTimeUs = Number.parseInt(
+            progressBlock.out_time_us ?? "0",
+            10,
+          );
+          const timemark = outTimeUs > 0 ? outTimeUs / 1_000_000 : 0;
+          this.emit("progress", {
+            frames,
+            currentFps,
+            currentKbps,
+            targetSize,
+            timemark,
+          });
+          progressBlock = {};
+        } else {
+          progressBlock[key] = value;
+        }
+      }
+    })().catch(() => {});
+
     proc
       .then(() => {
         this.emit("end", "", this._stderrLines.join("\n"));
@@ -424,6 +477,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       })
       .finally(() => {
         for (const pipe of namedPipes) pipe.close();
+        progressPipe.close();
       });
     return proc;
   }

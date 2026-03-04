@@ -45,7 +45,7 @@ function StreamInput(stream: stream.Readable): NamedPipeStream {
 
 function StreamOutput(
   stream: stream.Writable,
-  pipeArgs: Parameters<stream.Writable["pipe"]>[1],
+  pipeArgs?: Parameters<stream.Writable["pipe"]>[1],
 ): NamedPipeStream {
   return new NamedPipeStream(stream, (sock) => sock.pipe(stream, pipeArgs));
 }
