@@ -40,14 +40,20 @@ export class NamedPipeStream {
 }
 
 function StreamInput(stream: stream.Readable): NamedPipeStream {
-  return new NamedPipeStream(stream, (sock) => stream.pipe(sock));
+  return new NamedPipeStream(stream, (sock) => {
+    sock.on("error", () => {});
+    stream.pipe(sock);
+  });
 }
 
 function StreamOutput(
   stream: stream.Writable,
   pipeArgs?: Parameters<stream.Writable["pipe"]>[1],
 ): NamedPipeStream {
-  return new NamedPipeStream(stream, (sock) => sock.pipe(stream, pipeArgs));
+  return new NamedPipeStream(stream, (sock) => {
+    sock.on("error", () => {});
+    sock.pipe(stream, pipeArgs);
+  });
 }
 
 export { StreamInput, StreamOutput };
