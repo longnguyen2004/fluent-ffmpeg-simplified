@@ -4,6 +4,7 @@ import { parseArgsStringToArgv } from "string-argv";
 import { ffmpegPath } from "./executable.js";
 import {
   type NamedPipeStream,
+  FdStream,
   StreamInput,
   StreamOutput,
 } from "./stream-wrapper.js";
@@ -330,7 +331,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       );
   }
   run(cancelSignal?: AbortSignal): ResultPromise {
-    const namedPipes: NamedPipeStream[] = [];
+    const streams: Array<NamedPipeStream | FdStream> = [];
     if (this._proc) throw new Error("This instance is already run");
     if (!this._inputs.length) throw new Error("No inputs specified");
     if (!this._outputs.length) throw new Error("No outputs specified");
@@ -338,10 +339,38 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
 
     if (this._globalOptions.length) args.push(...this._globalOptions);
 
+    // Extra stdio entries backing POSIX `pipe:N` streams. Each entry pairs
+    // the Node stream with "pipe", letting the spawner own the piping; the
+    // child fd N is the stdio index N, so entries must be appended in
+    // registration order. The first three entries mirror execa's default.
+    const stdio: [
+      "pipe",
+      "pipe",
+      "pipe",
+      ...Array<[Readable, "pipe"] | [Writable, "pipe"]>,
+    ] = ["pipe", "pipe", "pipe"];
+    let nextFd = 3;
+    const registerStream = (s: NamedPipeStream | FdStream): string => {
+      streams.push(s);
+      if (s instanceof FdStream) {
+        const fd = nextFd++;
+        // Push per direction: a bare Readable satisfies only the input
+        // branch and a bare Writable only the output branch. Both hold
+        // vacuously (`{fd?: ...}` is optional), but the union does not, so
+        // the direction recorded at construction selects the branch.
+        if (s.direction === "input") {
+          stdio.push([s.stdioStream as Readable, "pipe"]);
+        } else {
+          stdio.push([s.stdioStream as Writable, "pipe"]);
+        }
+        return s.claim(fd);
+      }
+      return s.url;
+    };
+
     const progressStream = new PassThrough();
     const progressPipe = StreamOutput(progressStream);
-    namedPipes.push(progressPipe);
-    args.push("-progress", progressPipe.url);
+    args.push("-progress", registerStream(progressPipe));
 
     for (const input of this._inputs) {
       const { extraOpts, format, fps, readrateNative, startTime, loop, src } =
@@ -355,9 +384,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       if (typeof src === "string") {
         args.push("-i", src);
       } else {
-        const stream = StreamInput(src);
-        args.push("-i", stream.url);
-        namedPipes.push(stream);
+        args.push("-i", registerStream(StreamInput(src)));
       }
     }
     for (const output of this._outputs) {
@@ -415,16 +442,16 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       if (typeof dst === "string") {
         args.push(dst);
       } else {
-        const stream = StreamOutput(dst.stream, dst.pipeArgs);
-        args.push(stream.url);
-        namedPipes.push(stream);
+        args.push(registerStream(StreamOutput(dst.stream, dst.pipeArgs)));
       }
     }
+    const useFds = streams.some((s) => s instanceof FdStream);
     const proc = execa(ffmpegPath, args, {
       cancelSignal,
       timeout: this._options.timeout,
       lines: true,
       buffer: { stdout: false },
+      ...(useFds ? { stdio } : {}),
     });
     this._proc = proc;
     proc.once("spawn", () => this.emit("start", proc.spawnargs.join(" ")));
@@ -485,7 +512,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
         this.emit("error", err, "", this._stderrLines.join("\n"));
       })
       .finally(() => {
-        for (const pipe of namedPipes) pipe.close();
+        for (const pipe of streams) pipe.close();
         progressPipe.close();
       });
     return proc;

@@ -1,34 +1,7 @@
 import net from "node:net";
-import fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import { setsockopt } from "sockopt";
 import type stream from "node:stream";
-
-const socketConstants =
-  process.platform === "darwin"
-    ? {
-        SOL_SOCKET: 0xffff,
-        SO_SNDBUF: 0x1001,
-        SO_RCVBUF: 0x1002,
-      }
-    : process.platform === "linux"
-      ? {
-          SOL_SOCKET: 1,
-          SO_SNDBUF: 7,
-          SO_RCVBUF: 8,
-        }
-      : null;
-
-function configureSocket(sock: net.Socket, size: number) {
-  if (!socketConstants) {
-    return;
-  }
-
-  const { SOL_SOCKET, SO_SNDBUF, SO_RCVBUF } = socketConstants;
-
-  setsockopt(sock, SOL_SOCKET, SO_SNDBUF, size);
-  setsockopt(sock, SOL_SOCKET, SO_RCVBUF, size);
-}
+import { Duplex, PassThrough, Readable } from "node:stream";
 
 export class NamedPipeStream {
   private _socketPath: string;
@@ -37,18 +10,7 @@ export class NamedPipeStream {
 
   constructor(stream: stream.Stream, onSocket?: (sock: net.Socket) => unknown) {
     const id = randomUUID();
-    if (process.platform === "win32") {
-      this._url = this._socketPath = `\\\\.\\pipe\\${id}.sock`;
-    } else {
-      // Assuming /tmp is available (it should be, or else your system is very screwed)
-      this._socketPath = `/tmp/${id}.sock`;
-      this._url = `unix:${this._socketPath}`;
-    }
-
-    try {
-      fs.statSync(this._socketPath);
-      fs.unlinkSync(this._socketPath);
-    } catch {}
+    this._url = this._socketPath = `\\\\.\\pipe\\${id}.sock`;
 
     this._server = net.createServer(onSocket);
     stream.on("close", () => {
@@ -66,23 +28,97 @@ export class NamedPipeStream {
   }
 }
 
-function StreamInput(stream: stream.Readable): NamedPipeStream {
-  return new NamedPipeStream(stream, (sock) => {
-    sock.on("error", () => {});
-    configureSocket(sock, 64 * 1024);
-    stream.pipe(sock);
-  });
+/**
+ * One extra file descriptor passed to the ffmpeg child process
+ * (macOS/Linux). The child sees it as `pipe:N`. The held Node stream is
+ * placed directly in the child stdio array as `[stream, "pipe"]`, so the
+ * spawner owns all piping: OS pipes apply backpressure naturally and there
+ * is no per-connection setup or buffer tuning.
+ *
+ * Instances are created synchronously by `StreamInput`/`StreamOutput`, then
+ * `claim()` assigns the child fd number in stdio order when building the
+ * spawn arguments.
+ */
+export class FdStream {
+  private _fd: number = -1;
+  private _url: string = "";
+
+  /** Node stream placed directly in the child stdio array. */
+  readonly stdioStream: stream.Readable | stream.Writable;
+
+  /**
+   * Which side of the child pipe this is. Records the factory intent so the
+   * stdio entry can be typed per-direction (the spawner infers direction
+   * from the value at runtime; no behavior branches on this).
+   */
+  readonly direction: "input" | "output";
+
+  constructor(
+    stream: stream.Readable | stream.Writable,
+    direction: "input" | "output",
+  ) {
+    this.stdioStream = stream;
+    this.direction = direction;
+  }
+
+  get fd(): number {
+    return this._fd;
+  }
+
+  get url(): string {
+    return this._url;
+  }
+
+  claim(fd: number): string {
+    if (this._fd !== -1) {
+      throw new Error("FdStream already claimed");
+    }
+    this._fd = fd;
+    this._url = `pipe:${fd}`;
+    return this._url;
+  }
+
+  close(): void {
+    // Nothing to release: the spawner owns the stdio pipes and tears them
+    // down when the child exits. Kept for interface parity with
+    // NamedPipeStream so both can be closed uniformly.
+  }
+}
+
+function StreamInput(stream: stream.Readable): NamedPipeStream | FdStream {
+  if (process.platform === "win32") {
+    return new NamedPipeStream(stream, (sock) => {
+      sock.on("error", () => {});
+      stream.pipe(sock);
+    });
+  }
+  // The spawner infers extra-fd direction from the value: a Duplex is
+  // ambiguous and defaults to "output", which would hang an input. Bridge
+  // Duplex inputs to a pure Readable so the direction is unambiguous.
+  if (stream instanceof Duplex) {
+    return new FdStream(Readable.from(stream), "input");
+  }
+  return new FdStream(stream, "input");
 }
 
 function StreamOutput(
   stream: stream.Writable,
   pipeArgs?: Parameters<stream.Writable["pipe"]>[1],
-): NamedPipeStream {
-  return new NamedPipeStream(stream, (sock) => {
-    sock.on("error", () => {});
-    configureSocket(sock, 64 * 1024);
-    sock.pipe(stream, pipeArgs);
-  });
+): NamedPipeStream | FdStream {
+  if (process.platform === "win32") {
+    return new NamedPipeStream(stream, (sock) => {
+      sock.on("error", () => {});
+      sock.pipe(stream, pipeArgs);
+    });
+  }
+  // The spawner pipes without options, so honor pipeArgs (e.g. { end: false })
+  // through a bridge. The bridge itself is direction-unambiguous ("output").
+  if (pipeArgs) {
+    const bridge = new PassThrough();
+    bridge.pipe(stream, pipeArgs);
+    return new FdStream(bridge, "output");
+  }
+  return new FdStream(stream, "output");
 }
 
 export { StreamInput, StreamOutput };

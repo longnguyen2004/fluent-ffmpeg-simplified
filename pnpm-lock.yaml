@@ -11,9 +11,6 @@ importers:
       execa:
         specifier: ^9.6.1
         version: 9.6.1
-      sockopt:
-        specifier: ^2.0.1
-        version: 2.0.1
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
@@ -332,13 +329,6 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  node-addon-api@7.1.1:
-    resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
-
-  node-gyp-build@4.8.4:
-    resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
-    hasBin: true
-
   npm-run-path@6.0.0:
     resolution: {integrity: sha512-9qny7Z9DsQU8Ou39ERsPU4OZQlSTP47ShQzuKZ6PRXpYLtIFgl/DEBYEXKlvcEa+9tHVcK8CF81Y2V72qaZhWA==}
     engines: {node: '>=18'}
@@ -415,10 +405,6 @@ packages:
   signal-exit@4.1.0:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
-
-  sockopt@2.0.1:
-    resolution: {integrity: sha512-C+Pb4hMrwWmY/f34xf/Yhc1MZmfvWJUqoCNC95jiMutPdZLcRinVcmrbq3dqeN3j7ziO5KC1MjM3fq2n/FZLuA==}
-    engines: {node: '>=18'}
 
   string-argv@0.3.2:
     resolution: {integrity: sha512-aqD2Q0144Z+/RqG52NeHEkZauTAUWJO8c6yTftGJKO3Tja5tUgIfmIl6kExvhtxSDP7fXB6DvzkfMpCd/F3G+Q==}
@@ -735,10 +721,6 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  node-addon-api@7.1.1: {}
-
-  node-gyp-build@4.8.4: {}
-
   npm-run-path@6.0.0:
     dependencies:
       path-key: 4.0.0
@@ -809,11 +791,6 @@ snapshots:
   shebang-regex@3.0.0: {}
 
   signal-exit@4.1.0: {}
-
-  sockopt@2.0.1:
-    dependencies:
-      node-addon-api: 7.1.1
-      node-gyp-build: 4.8.4
 
   string-argv@0.3.2: {}
 
