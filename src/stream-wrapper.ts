@@ -1,7 +1,34 @@
 import net from "node:net";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
+import { setsockopt } from "sockopt";
 import type stream from "node:stream";
+
+const socketConstants =
+  process.platform === "darwin"
+    ? {
+        SOL_SOCKET: 0xffff,
+        SO_SNDBUF: 0x1001,
+        SO_RCVBUF: 0x1002,
+      }
+    : process.platform === "linux"
+      ? {
+          SOL_SOCKET: 1,
+          SO_SNDBUF: 7,
+          SO_RCVBUF: 8,
+        }
+      : null;
+
+function configureSocket(sock: net.Socket, size: number) {
+  if (!socketConstants) {
+    return;
+  }
+
+  const { SOL_SOCKET, SO_SNDBUF, SO_RCVBUF } = socketConstants;
+
+  setsockopt(sock, SOL_SOCKET, SO_SNDBUF, size);
+  setsockopt(sock, SOL_SOCKET, SO_RCVBUF, size);
+}
 
 export class NamedPipeStream {
   private _socketPath: string;
@@ -42,6 +69,7 @@ export class NamedPipeStream {
 function StreamInput(stream: stream.Readable): NamedPipeStream {
   return new NamedPipeStream(stream, (sock) => {
     sock.on("error", () => {});
+    configureSocket(sock, 64 * 1024);
     stream.pipe(sock);
   });
 }
@@ -52,6 +80,7 @@ function StreamOutput(
 ): NamedPipeStream {
   return new NamedPipeStream(stream, (sock) => {
     sock.on("error", () => {});
+    configureSocket(sock, 64 * 1024);
     sock.pipe(stream, pipeArgs);
   });
 }
