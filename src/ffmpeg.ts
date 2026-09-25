@@ -118,6 +118,7 @@ type PipeArgs = Parameters<Writable["pipe"]>[1];
 
 export class FFmpegCommand extends EventEmitter<EventMap> {
   private _options: Options;
+  private _globalOptions: string[] = [];
   private _inputs: InputSettings[] = [];
   private _outputs: OutputSettings[] = [];
   private _proc?: ResultPromise;
@@ -132,6 +133,12 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       ...options,
     };
     this.on("error", () => {});
+  }
+  globalOptions(...options: (string | string[])[]): this {
+    this._globalOptions.push(
+      ...options.flat().flatMap((option) => parseArgsStringToArgv(option)),
+    );
+    return this;
   }
   input(src: string | Readable): this {
     this._inputs.push({ src });
@@ -328,6 +335,8 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     if (!this._inputs.length) throw new Error("No inputs specified");
     if (!this._outputs.length) throw new Error("No outputs specified");
     const args: string[] = [];
+
+    if (this._globalOptions.length) args.push(...this._globalOptions);
 
     const progressStream = new PassThrough();
     const progressPipe = StreamOutput(progressStream);
