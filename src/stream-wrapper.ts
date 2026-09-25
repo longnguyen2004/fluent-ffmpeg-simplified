@@ -1,26 +1,118 @@
 import net from "node:net";
-import { randomUUID } from "node:crypto";
+import { setsockopt } from "sockopt";
 import type stream from "node:stream";
-import { Duplex, PassThrough, Readable } from "node:stream";
+
+/**
+ * Low socket buffer size (bytes) applied to both ends of each TCP
+ * connection: `SO_SNDBUF`/`SO_RCVBUF` via `setsockopt` on the Node side,
+ * and `send_buffer_size`/`recv_buffer_size` query params on the ffmpeg side.
+ * Small buffers enforce backpressure instead of letting data pile up in
+ * kernel buffers.
+ */
+export const SOCKET_BUFFER_SIZE: number = 8 * 1024;
+
+const socketConstants: {
+  SOL_SOCKET: number;
+  SO_SNDBUF: number;
+  SO_RCVBUF: number;
+} | null =
+  process.platform === "darwin"
+    ? {
+        SOL_SOCKET: 0xffff,
+        SO_SNDBUF: 0x1001,
+        SO_RCVBUF: 0x1002,
+      }
+    : process.platform === "linux"
+      ? {
+          SOL_SOCKET: 1,
+          SO_SNDBUF: 7,
+          SO_RCVBUF: 8,
+        }
+      : null;
+
+function configureSocket(sock: net.Socket, size: number): void {
+  if (!socketConstants) {
+    return;
+  }
+
+  const { SOL_SOCKET, SO_SNDBUF, SO_RCVBUF } = socketConstants;
+
+  setsockopt(sock, SOL_SOCKET, SO_SNDBUF, size);
+  setsockopt(sock, SOL_SOCKET, SO_RCVBUF, size);
+}
+
+/**
+ * Pick a random loopback address. On Linux the whole 127/8 is usable
+ * without setup (verified); other platforms only guarantee 127.0.0.1, so
+ * they keep it. With ~16.7M candidates, clashing with another process's
+ * address is exceedingly unlikely, so no collision checks are done.
+ */
+function randomLoopbackHost(): string {
+  if (process.platform !== "linux") {
+    return "127.0.0.1";
+  }
+  // Last 24 bits in [2, 0xFFFFFE]: skips 127.0.0.0, 127.0.0.1 and
+  // 127.255.255.255.
+  const n = 2 + Math.floor(Math.random() * (0xff_ff_fe - 1));
+  return `127.${(n >>> 16) & 0xff}.${(n >>> 8) & 0xff}.${n & 0xff}`;
+}
+
+/**
+ * Pick a random port in the IANA dynamic range. Combined with a random
+ * loopback address, the (address, port) pair effectively never collides
+ * with another process's listener, so no collision checks are done.
+ */
+function randomLoopbackPort(): number {
+  return 49152 + Math.floor(Math.random() * 16384);
+}
 
 export class NamedPipeStream {
-  private _socketPath: string;
+  private _host: string;
+  private _port: number;
   private _url: string;
   private _server: net.Server;
 
-  constructor(stream: stream.Stream, onSocket?: (sock: net.Socket) => unknown) {
-    const id = randomUUID();
-    this._url = this._socketPath = `\\\\.\\pipe\\${id}.sock`;
+  constructor(
+    stream: stream.Stream,
+    onSocket?: (sock: net.Socket) => unknown,
+    bufferSize: number = SOCKET_BUFFER_SIZE,
+  ) {
+    // Node listens; ffmpeg dials in as a TCP client so that its
+    // `send_buffer_size`/`recv_buffer_size` URL options land on the actual
+    // data socket (in `listen` mode ffmpeg would only tune its listen socket).
+    this._host = randomLoopbackHost();
+    this._port = randomLoopbackPort();
+    this._url =
+      `tcp://${this._host}:${this._port}` +
+      `?send_buffer_size=${bufferSize}&recv_buffer_size=${bufferSize}`;
 
-    this._server = net.createServer(onSocket);
-    stream.on("close", () => {
-      this._server.close();
+    this._server = net.createServer((sock) => {
+      sock.on("error", () => {});
+      try {
+        configureSocket(sock, bufferSize);
+      } catch {}
+      sock.setNoDelay(true);
+      onSocket?.(sock);
     });
-    this._server.listen(this._socketPath);
+    // A bind collision (or any other async listen failure) must never crash
+    // the process; it surfaces as ffmpeg failing to connect.
+    this._server.on("error", () => {});
+    stream.on("close", () => {
+      this.close();
+    });
+    this._server.listen(this._port, this._host);
   }
 
   get url(): string {
     return this._url;
+  }
+
+  get host(): string {
+    return this._host;
+  }
+
+  get port(): number {
+    return this._port;
   }
 
   close(): void {
@@ -28,97 +120,33 @@ export class NamedPipeStream {
   }
 }
 
-/**
- * One extra file descriptor passed to the ffmpeg child process
- * (macOS/Linux). The child sees it as `pipe:N`. The held Node stream is
- * placed directly in the child stdio array as `[stream, "pipe"]`, so the
- * spawner owns all piping: OS pipes apply backpressure naturally and there
- * is no per-connection setup or buffer tuning.
- *
- * Instances are created synchronously by `StreamInput`/`StreamOutput`, then
- * `claim()` assigns the child fd number in stdio order when building the
- * spawn arguments.
- */
-export class FdStream {
-  private _fd: number = -1;
-  private _url: string = "";
-
-  /** Node stream placed directly in the child stdio array. */
-  readonly stdioStream: stream.Readable | stream.Writable;
-
-  /**
-   * Which side of the child pipe this is. Records the factory intent so the
-   * stdio entry can be typed per-direction (the spawner infers direction
-   * from the value at runtime; no behavior branches on this).
-   */
-  readonly direction: "input" | "output";
-
-  constructor(
-    stream: stream.Readable | stream.Writable,
-    direction: "input" | "output",
-  ) {
-    this.stdioStream = stream;
-    this.direction = direction;
-  }
-
-  get fd(): number {
-    return this._fd;
-  }
-
-  get url(): string {
-    return this._url;
-  }
-
-  claim(fd: number): string {
-    if (this._fd !== -1) {
-      throw new Error("FdStream already claimed");
-    }
-    this._fd = fd;
-    this._url = `pipe:${fd}`;
-    return this._url;
-  }
-
-  close(): void {
-    // Nothing to release: the spawner owns the stdio pipes and tears them
-    // down when the child exits. Kept for interface parity with
-    // NamedPipeStream so both can be closed uniformly.
-  }
-}
-
-function StreamInput(stream: stream.Readable): NamedPipeStream | FdStream {
-  if (process.platform === "win32") {
-    return new NamedPipeStream(stream, (sock) => {
+function StreamInput(
+  stream: stream.Readable,
+  bufferSize?: number,
+): NamedPipeStream {
+  return new NamedPipeStream(
+    stream,
+    (sock) => {
       sock.on("error", () => {});
       stream.pipe(sock);
-    });
-  }
-  // The spawner infers extra-fd direction from the value: a Duplex is
-  // ambiguous and defaults to "output", which would hang an input. Bridge
-  // Duplex inputs to a pure Readable so the direction is unambiguous.
-  if (stream instanceof Duplex) {
-    return new FdStream(Readable.from(stream), "input");
-  }
-  return new FdStream(stream, "input");
+    },
+    bufferSize,
+  );
 }
 
 function StreamOutput(
   stream: stream.Writable,
   pipeArgs?: Parameters<stream.Writable["pipe"]>[1],
-): NamedPipeStream | FdStream {
-  if (process.platform === "win32") {
-    return new NamedPipeStream(stream, (sock) => {
+  bufferSize?: number,
+): NamedPipeStream {
+  return new NamedPipeStream(
+    stream,
+    (sock) => {
       sock.on("error", () => {});
       sock.pipe(stream, pipeArgs);
-    });
-  }
-  // The spawner pipes without options, so honor pipeArgs (e.g. { end: false })
-  // through a bridge. The bridge itself is direction-unambiguous ("output").
-  if (pipeArgs) {
-    const bridge = new PassThrough();
-    bridge.pipe(stream, pipeArgs);
-    return new FdStream(bridge, "output");
-  }
-  return new FdStream(stream, "output");
+    },
+    bufferSize,
+  );
 }
 
 export { StreamInput, StreamOutput };
