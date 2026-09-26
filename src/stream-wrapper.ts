@@ -9,7 +9,7 @@ import { configureSocket } from "./sockopt.js";
  * Small buffers enforce backpressure instead of letting data pile up in
  * kernel buffers.
  */
-export const SOCKET_BUFFER_SIZE: number = 8 * 1024;
+export const SOCKET_BUFFER_SIZE: number = 256 * 1024;
 
 /**
  * Pick a random loopback address. On Linux the whole 127/8 is usable
@@ -54,7 +54,7 @@ export class NamedPipeStream {
     this._port = randomLoopbackPort();
     this._url =
       `tcp://${this._host}:${this._port}` +
-      `?send_buffer_size=${bufferSize}&recv_buffer_size=${bufferSize}`;
+      `?send_buffer_size=${bufferSize}&recv_buffer_size=${bufferSize}&tcp_nodelay=1`;
 
     this._server = net.createServer((sock) => {
       sock.on("error", () => {});
