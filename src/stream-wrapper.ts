@@ -1,6 +1,6 @@
 import net from "node:net";
-import { setsockopt } from "sockopt";
 import type stream from "node:stream";
+import { configureSocket } from "./sockopt.js";
 
 /**
  * Low socket buffer size (bytes) applied to both ends of each TCP
@@ -10,36 +10,6 @@ import type stream from "node:stream";
  * kernel buffers.
  */
 export const SOCKET_BUFFER_SIZE: number = 8 * 1024;
-
-const socketConstants: {
-  SOL_SOCKET: number;
-  SO_SNDBUF: number;
-  SO_RCVBUF: number;
-} | null =
-  process.platform === "darwin"
-    ? {
-        SOL_SOCKET: 0xffff,
-        SO_SNDBUF: 0x1001,
-        SO_RCVBUF: 0x1002,
-      }
-    : process.platform === "linux"
-      ? {
-          SOL_SOCKET: 1,
-          SO_SNDBUF: 7,
-          SO_RCVBUF: 8,
-        }
-      : null;
-
-function configureSocket(sock: net.Socket, size: number): void {
-  if (!socketConstants) {
-    return;
-  }
-
-  const { SOL_SOCKET, SO_SNDBUF, SO_RCVBUF } = socketConstants;
-
-  setsockopt(sock, SOL_SOCKET, SO_SNDBUF, size);
-  setsockopt(sock, SOL_SOCKET, SO_RCVBUF, size);
-}
 
 /**
  * Pick a random loopback address. On Linux the whole 127/8 is usable

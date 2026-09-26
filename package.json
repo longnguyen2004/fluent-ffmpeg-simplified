@@ -19,8 +19,8 @@
   "license": "MIT",
   "dependencies": {
     "execa": "^9.6.1",
-    "string-argv": "^0.3.2",
-    "sockopt": "^2.0.1"
+    "koffi": "^3.3.1",
+    "string-argv": "^0.3.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.8",
