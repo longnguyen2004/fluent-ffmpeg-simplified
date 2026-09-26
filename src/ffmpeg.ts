@@ -43,8 +43,25 @@ type Size =
   | `?x${number}`
   | `${number}%`;
 
+/**
+ * Extra options accepted by `input`/`output` when the source/destination is
+ * a stream.
+ */
+type StreamOptions = {
+  /**
+   * Socket buffer size in bytes, applied to both ends of the TCP connection
+   * carrying the stream. Defaults to `SOCKET_BUFFER_SIZE`.
+   */
+  bufferSize?: number;
+};
+
 type InputSettings = {
-  src: string | Readable;
+  src:
+    | string
+    | {
+        stream: Readable;
+        options?: StreamOptions;
+      };
   format?: string;
   fps?: number;
   readrateNative?: boolean;
@@ -88,6 +105,7 @@ type OutputSettings = {
     | {
         stream: Writable;
         pipeArgs?: PipeArgs;
+        options?: StreamOptions;
       };
   audio?: AudioSettings;
   video?: VideoSettings;
@@ -116,6 +134,13 @@ function filtersToString(filters: Filter[]) {
 
 type PipeArgs = Parameters<Writable["pipe"]>[1];
 
+function assertStreamOptions(options: StreamOptions | undefined): void {
+  const size = options?.bufferSize;
+  if (size === undefined) return;
+  if (!Number.isFinite(size) || size <= 0)
+    throw new Error(`Invalid socket buffer size: ${size}`);
+}
+
 export class FFmpegCommand extends EventEmitter<EventMap> {
   private _options: Options;
   private _globalOptions: string[] = [];
@@ -140,8 +165,16 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     );
     return this;
   }
-  input(src: string | Readable): this {
-    this._inputs.push({ src });
+  input(src: string): this;
+  input(src: Readable, options?: StreamOptions): this;
+  input(src: string | Readable, options?: StreamOptions): this {
+    const isStream = typeof src !== "string";
+    if (isStream) {
+      assertStreamOptions(options);
+      this._inputs.push({ src: { stream: src, options } });
+    } else {
+      this._inputs.push({ src });
+    }
     return this;
   }
   private _getLastInput() {
@@ -187,13 +220,23 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
     return this;
   }
   output(dst: string): this;
-  output(dst: Writable, pipeArgs?: PipeArgs): this;
-  output(dst: string | Writable, pipeArgs?: PipeArgs): this {
-    this._outputs.push({
-      dst: typeof dst === "string" ? dst : { stream: dst, pipeArgs },
-      audio: {},
-      video: {},
-    });
+  output(dst: Writable, pipeArgs?: PipeArgs, options?: StreamOptions): this;
+  output(
+    dst: string | Writable,
+    pipeArgs?: PipeArgs,
+    options?: StreamOptions,
+  ): this {
+    const isStream = typeof dst !== "string";
+    if (isStream) {
+      assertStreamOptions(options);
+      this._outputs.push({
+        dst: { stream: dst, pipeArgs, options },
+        audio: {},
+        video: {},
+      });
+    } else {
+      this._outputs.push({ dst, audio: {}, video: {} });
+    }
     return this;
   }
   outputOptions(...options: (string | string[])[]): this {
@@ -355,7 +398,7 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       if (typeof src === "string") {
         args.push("-i", src);
       } else {
-        const stream = StreamInput(src);
+        const stream = StreamInput(src.stream, src.options?.bufferSize);
         args.push("-i", stream.url);
         namedPipes.push(stream);
       }
@@ -415,7 +458,11 @@ export class FFmpegCommand extends EventEmitter<EventMap> {
       if (typeof dst === "string") {
         args.push(dst);
       } else {
-        const stream = StreamOutput(dst.stream, dst.pipeArgs);
+        const stream = StreamOutput(
+          dst.stream,
+          dst.pipeArgs,
+          dst.options?.bufferSize,
+        );
         args.push(stream.url);
         namedPipes.push(stream);
       }
